@@ -1,0 +1,3 @@
+# Org baseline rules
+INJECT_PROMPT|detect:ignore previous instructions
+PII_SSN|detect:my ssn is

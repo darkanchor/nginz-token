@@ -1,0 +1,3 @@
+# Rules with explicit per-rule redact action.
+# Used to verify request-side redact is canonicalized to block.
+CREDIT_CARD|redact:credit card

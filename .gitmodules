@@ -1,0 +1,9 @@
+[submodule "submodules/nginx"]
+	path = submodules/nginx
+	url = https://github.com/nginx/nginx.git
+[submodule "submodules/njs"]
+	path = submodules/njs
+	url = https://github.com/nginx/njs.git
+[submodule "submodules/quickjs"]
+	path = submodules/quickjs
+	url = https://github.com/bellard/quickjs.git

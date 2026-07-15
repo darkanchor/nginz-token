@@ -1,0 +1,3 @@
+# Project may strengthen but not weaken org rules.
+INJECT_PROMPT|block:ignore previous instructions
+SECRET_LEAK|block:api_key=

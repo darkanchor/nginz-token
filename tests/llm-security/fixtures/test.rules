@@ -1,0 +1,6 @@
+# llm-security test rules
+# Format: rule_id:literal_pattern (case-insensitive substring match)
+INJECT_PROMPT:ignore previous instructions
+INJECT_PROMPT:ignore all previous
+PII_SSN:my ssn is
+SECRET_LEAK:api_key=

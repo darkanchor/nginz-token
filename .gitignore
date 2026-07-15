@@ -1,0 +1,8 @@
+zig-out/
+.zig-cache/
+objs/
+Makefile
+perf/**/benchmark/output/
+perf/**/benchmark/runtime/
+.claude/settings.local.json
+tests/**/.*.nginx.conf

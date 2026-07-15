@@ -1,0 +1,2 @@
+# Org fixed block rule used for weaken-validation.
+INJECT_PROMPT|block:ignore previous instructions

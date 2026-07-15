@@ -1,0 +1,2 @@
+# llm-security test rules for short-body regression coverage
+LONG_ONLY:supersecretpatternthatcannotfit

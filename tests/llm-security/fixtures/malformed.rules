@@ -1,0 +1,2 @@
+# Every non-comment line must be a complete RULE_ID:literal_pattern entry.
+MALFORMED_WITHOUT_SEPARATOR

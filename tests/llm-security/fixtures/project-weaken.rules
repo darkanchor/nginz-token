@@ -1,0 +1,2 @@
+# Invalid: this attempts to weaken an org-fixed block rule.
+INJECT_PROMPT|detect:ignore previous instructions
