@@ -10,6 +10,9 @@ import {
 
 const MODULE = "llm-cost";
 configureTestPorts(MODULE);
+// Fixed local mock port — only llm-cost uses it; leave unmapped in harness so the
+// DSN in nginx-pg.conf (port=25432) and createPostgresMock agree without remap.
+const PG_MOCK_PORT = 25432;
 const NGINZ_BIN = "./zig-out/bin/nginz-token";
 
 function childPids(parentPid) {
@@ -44,15 +47,17 @@ function readCostLogs(runtimeDir) {
 }
 
 async function post(path, body, headers = {}) {
+  // Connection: close avoids Bun keep-alive reuse after non-2xx / reload
+  // sockets — otherwise the next fetch races to a dead connection (ECONNRESET).
   return fetch(`${TEST_URL}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json", ...headers },
+    headers: { "content-type": "application/json", Connection: "close", ...headers },
     body: JSON.stringify(body),
   });
 }
 
 async function get(path, headers = {}) {
-  return fetch(`${TEST_URL}${path}`, { headers });
+  return fetch(`${TEST_URL}${path}`, { headers: { Connection: "close", ...headers } });
 }
 
 // Retry-poll pgMock for an INSERT query. The LOG phase only enqueues; the
@@ -233,7 +238,7 @@ describe("llm-cost — phase 2: postgres backend", () => {
   let pgMock;
 
   beforeAll(async () => {
-    pgMock = createPostgresMock(25432); // createPostgresMock already calls start()
+    pgMock = createPostgresMock(PG_MOCK_PORT); // createPostgresMock already calls start()
     runtimeDir = await startNginz(`tests/${MODULE}/nginx-pg.conf`, MODULE);
   });
 
@@ -336,7 +341,7 @@ describe("llm-cost — ambiguous commit retry", () => {
   let pgMock;
 
   beforeAll(async () => {
-    pgMock = createPostgresMock(25432);
+    pgMock = createPostgresMock(PG_MOCK_PORT);
     let attempts = 0;
     pgMock.setQueryHandler(/INSERT/i, () => {
       attempts += 1;
@@ -414,7 +419,7 @@ describe("llm-cost — asynchronous postgres backpressure", () => {
     // Recovery is automatic: one connection drains all accepted events in
     // FIFO order after postgres returns. The eight rejected events remain
     // visible in the accounting/recovery logs for external replay.
-    pgMock = createPostgresMock(25432);
+    pgMock = createPostgresMock(PG_MOCK_PORT);
     const recoveryDeadline = Date.now() + 5000;
     while (Date.now() < recoveryDeadline) {
       if (persistedEventCount(pgMock) >= 512) break;
@@ -428,7 +433,7 @@ describe("llm-cost — stalled postgres and graceful reload", () => {
   let pgMock;
 
   beforeAll(async () => {
-    pgMock = createPostgresMock(25432);
+    pgMock = createPostgresMock(PG_MOCK_PORT);
     pgMock.setQueryHandler(/INSERT/i, () => ({ hang: true }));
     await startNginz(`tests/${MODULE}/nginx-pg.conf`, MODULE);
   });
@@ -453,7 +458,7 @@ describe("llm-cost — stalled postgres and graceful reload", () => {
 
     await reloadNginz();
     pgMock.stop();
-    pgMock = createPostgresMock(25432);
+    pgMock = createPostgresMock(PG_MOCK_PORT);
 
     const drainDeadline = Date.now() + 5000;
     while (Date.now() < drainDeadline) {
@@ -475,7 +480,7 @@ describe("llm-cost — worker crash recovery boundary", () => {
   let pgMock;
 
   beforeAll(async () => {
-    pgMock = createPostgresMock(25432);
+    pgMock = createPostgresMock(PG_MOCK_PORT);
     pgMock.setQueryHandler(/INSERT/i, () => ({ hang: true }));
     runtimeDir = await startNginz(`tests/${MODULE}/nginx-pg.conf`, MODULE);
   });
@@ -502,7 +507,7 @@ describe("llm-cost — worker crash recovery boundary", () => {
     expect(new Set(prior.map((entry) => entry.event_id)).size).toBe(5);
 
     pgMock.stop();
-    pgMock = createPostgresMock(25432);
+    pgMock = createPostgresMock(PG_MOCK_PORT);
     expect((await post("/cost-pg", body)).status).toBe(200);
     expect(await waitForInsert(pgMock, 1500)).toBeDefined();
   });
@@ -514,7 +519,7 @@ describe("llm-cost — M2 Target 1: routing attribution in postgres INSERT", () 
   let pgMock;
 
   beforeAll(async () => {
-    pgMock = createPostgresMock(25432);
+    pgMock = createPostgresMock(PG_MOCK_PORT);
     await startNginz(`tests/${MODULE}/nginx-pg.conf`, MODULE);
   });
 
@@ -585,7 +590,7 @@ describe("llm-cost — M2 Target 2: org/project/client billing scope in INSERT",
   let pgMock;
 
   beforeAll(async () => {
-    pgMock = createPostgresMock(25432);
+    pgMock = createPostgresMock(PG_MOCK_PORT);
     await startNginz(`tests/${MODULE}/nginx-pg.conf`, MODULE);
   });
 
@@ -700,7 +705,7 @@ describe("llm-cost — M2 rejected requests are not persisted to postgres", () =
   let pgMock;
 
   beforeAll(async () => {
-    pgMock = createPostgresMock(25432);
+    pgMock = createPostgresMock(PG_MOCK_PORT);
     await startNginz(`tests/${MODULE}/nginx-pg.conf`, MODULE);
   });
 
@@ -729,7 +734,7 @@ describe("llm-cost — bug fix: no_rate persists a postgres row", () => {
   let pgMock;
 
   beforeAll(async () => {
-    pgMock = createPostgresMock(25432);
+    pgMock = createPostgresMock(PG_MOCK_PORT);
     await startNginz(`tests/${MODULE}/nginx-pg.conf`, MODULE);
   });
 
@@ -764,7 +769,7 @@ describe("llm-cost — unsafe failure-driven provider fallback containment", () 
   let runtimeDir;
 
   beforeAll(async () => {
-    pgMock = createPostgresMock(25432);
+    pgMock = createPostgresMock(PG_MOCK_PORT);
     runtimeDir = await startNginz(`tests/${MODULE}/nginx-fallback-billing.conf`, MODULE);
   });
 

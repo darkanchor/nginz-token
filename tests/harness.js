@@ -7,15 +7,31 @@ const NGINZ_BIN = "./zig-out/bin/nginz-token";
 export const DEFAULT_PERF_OPTIMIZE = "ReleaseSmall";
 const BUILD_LOCK_PATH = join(process.cwd(), ".zig-build.lock");
 const LEGACY_PORTS = [
-  8888, 8889, 8891, 8892,
+  // nginx listen / internal mock upstreams
+  8888, 8889, 8891, 8892, 8895,
+  // Bun mock servers
   9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009,
   19000, 19001, 19002, 19003, 19004, 19005, 19006, 19007, 19008, 19009,
   19010, 19011, 19012, 19013, 19014, 19015, 19016, 19017, 19018, 19019,
   19020, 19021, 19100, 19101,
 ];
+// Must be >= LEGACY_PORTS.length so every legacy port maps uniquely.
 const PORT_BLOCK_SIZE = 48;
 const PORT_BLOCK_BASE = 10000;
-const PORT_BLOCKS_PER_PID = 4;
+// Deterministic module slots — must cover every tests/<module>/ directory.
+// The previous design used only 4 slots, so 7 suites collided inside one
+// `bun test` process whenever files ran with overlapping lifetimes.
+const MODULE_PORT_SLOTS = [
+  "llm-auth",
+  "llm-cost",
+  "llm-fallback",
+  "llm-metrics",
+  "llm-proxy",
+  "llm-ratelimit",
+  "llm-security",
+];
+const MAX_MODULE_SLOTS = 16;
+const MAX_PID_SLOTS = 40; // 40 * 16 * 48 + 10000 < 65535
 
 let currentPortPlan = null;
 let currentModuleName = null;
@@ -31,10 +47,16 @@ function hashString(input) {
   return hash >>> 0;
 }
 
+function modulePortSlot(moduleName) {
+  const known = MODULE_PORT_SLOTS.indexOf(moduleName);
+  if (known >= 0) return known;
+  return hashString(moduleName) % MAX_MODULE_SLOTS;
+}
+
 function buildPortPlan(moduleName) {
-  const moduleSlot = hashString(moduleName) % PORT_BLOCKS_PER_PID;
-  const pidSlot = process.pid % 280;
-  const blockIndex = (pidSlot * PORT_BLOCKS_PER_PID) + moduleSlot;
+  const moduleSlot = modulePortSlot(moduleName);
+  const pidSlot = process.pid % MAX_PID_SLOTS;
+  const blockIndex = pidSlot * MAX_MODULE_SLOTS + moduleSlot;
   const start = PORT_BLOCK_BASE + (blockIndex * PORT_BLOCK_SIZE);
   const byLegacy = new Map();
 
@@ -159,10 +181,18 @@ function createRuntimeDir(moduleName) {
   return runtimeDir;
 }
 
+// Ports nginx itself binds in test configs (not Bun mock servers). Freeing
+// mock ports (190xx) here would fuser-kill the test process that already
+// started createHTTPMock() in beforeAll.
+const NGINX_LISTEN_LEGACY_PORTS = ["8888", "8889", "8891", "8892", "8895"];
+
 // Start nginz with given config
 export async function startNginz(configPath, moduleName) {
   configureTestPorts(moduleName);
-  await waitForPortFree(TEST_PORT_NUM);
+  for (const legacy of NGINX_LISTEN_LEGACY_PORTS) {
+    const port = currentPortPlan?.byLegacy.get(legacy);
+    if (port) await ensurePortFree(port);
+  }
   const runtimeDir = createRuntimeDir(moduleName);
   const absConfig = materializeTestConfig(configPath, moduleName, runtimeDir);
   activeGeneratedConfigPath = absConfig;
@@ -180,10 +210,20 @@ export async function startNginz(configPath, moduleName) {
 
 // Stop nginz (fast shutdown so open connections from timed-out tests don't block)
 export async function stopNginz() {
+  const port = TEST_PORT_NUM;
   if (nginzProcess) {
-    nginzProcess.kill("SIGTERM");
-    await nginzProcess.exited;
+    const proc = nginzProcess;
     nginzProcess = null;
+    try {
+      proc.kill("SIGTERM");
+    } catch {}
+    const killTimer = setTimeout(() => {
+      try { proc.kill("SIGKILL"); } catch {}
+    }, 2000);
+    try {
+      await proc.exited;
+    } catch {}
+    clearTimeout(killTimer);
   }
   if (activeGeneratedConfigPath) {
     try {
@@ -191,6 +231,9 @@ export async function stopNginz() {
     } catch {}
     activeGeneratedConfigPath = null;
   }
+  try {
+    await waitForPortFree(port, 5000);
+  } catch {}
 }
 
 // Gracefully reload the active nginx master while preserving shared zones.
@@ -204,20 +247,61 @@ export async function reloadNginz() {
 }
 
 // Wait until nothing is listening on the port (previous nginx fully gone)
-async function waitForPortFree(port, timeout = 5000) {
+export async function waitForPortFree(port, timeout = 10000) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     try {
-      const socket = await Bun.connect({
+      await Bun.connect({
         hostname: "127.0.0.1",
         port,
         socket: { data() {}, open(s) { s.end(); }, close() {}, error() {} },
       });
+      // Still accepting connections — wait and retry.
       await Bun.sleep(50);
     } catch {
       return;
     }
   }
+  throw new Error(`Timeout waiting for port ${port} to become free`);
+}
+
+function killListenersOnPort(port) {
+  // Only kill LISTEN-side processes (ss -ltnp). Do NOT use `fuser -k`:
+  // fuser also targets clients connected to the port, which would SIGKILL
+  // the bun test process itself while it still has sockets open to nginx.
+  try {
+    const ss = spawnSync(["ss", "-ltnp", `sport = :${port}`], {
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const raw = ss.stdout;
+    const text = raw == null
+      ? ""
+      : typeof raw === "string"
+        ? raw
+        : Buffer.from(raw).toString();
+    for (const match of text.matchAll(/pid=(\d+)/g)) {
+      const pid = Number(match[1]);
+      if (pid > 0 && pid !== process.pid) {
+        try { process.kill(pid, "SIGKILL"); } catch {}
+      }
+    }
+  } catch {}
+}
+
+// Free a TCP port for reuse. Soft-wait first; if something is still bound,
+// kill listeners on that port (test-only harness) and wait again.
+export async function ensurePortFree(port, timeout = 10000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try {
+      await waitForPortFree(port, 150);
+      return;
+    } catch {}
+    killListenersOnPort(port);
+    await Bun.sleep(50);
+  }
+  throw new Error(`Timeout waiting for port ${port} to become free`);
 }
 
 // Wait for port to be available
@@ -227,7 +311,10 @@ async function waitForPort(port, timeout = 10000) {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 100);
-      await fetch(`http://localhost:${port}/`, { signal: controller.signal });
+      await fetch(`http://localhost:${port}/`, {
+        signal: controller.signal,
+        headers: { Connection: "close" },
+      });
       clearTimeout(timeoutId);
       return;
     } catch {

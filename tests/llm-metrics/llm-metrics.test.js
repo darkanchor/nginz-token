@@ -18,13 +18,16 @@ configureTestPorts(MODULE);
 const NGINZ_BIN = "./zig-out/bin/nginz-token";
 
 async function get(path) {
-  return fetch(`${TEST_URL}${path}`);
+  // Connection: close avoids Bun keep-alive reuse of sockets that nginx
+  // closes during graceful reload (old workers drain) or after non-2xx
+  // responses — otherwise the next fetch races to a dead socket (ECONNRESET).
+  return fetch(`${TEST_URL}${path}`, { headers: { Connection: "close" } });
 }
 
 async function post(path, bodyObj) {
   return fetch(`${TEST_URL}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", Connection: "close" },
     body: JSON.stringify(bodyObj),
   });
 }
@@ -32,13 +35,13 @@ async function post(path, bodyObj) {
 async function postWithHeaders(path, bodyObj, extraHeaders) {
   return fetch(`${TEST_URL}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json", ...extraHeaders },
+    headers: { "content-type": "application/json", Connection: "close", ...extraHeaders },
     body: JSON.stringify(bodyObj),
   });
 }
 
 async function scrape() {
-  const r = await fetch(`${TEST_URL}/metrics`);
+  const r = await fetch(`${TEST_URL}/metrics`, { headers: { Connection: "close" } });
   expect(r.status).toBe(200);
   return r.text();
 }
@@ -119,7 +122,7 @@ describe("llm-metrics — phase 1: shared metadata counters", () => {
   });
 
   test("export endpoint returns 200 with prometheus content-type", async () => {
-    const r = await fetch(`${TEST_URL}/metrics`);
+    const r = await fetch(`${TEST_URL}/metrics`, { headers: { Connection: "close" } });
     expect(r.status).toBe(200);
     const ct = r.headers.get("content-type") ?? "";
     expect(ct).toContain("text/plain");

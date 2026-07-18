@@ -235,13 +235,28 @@ function readPhase15AccessLines() {
   return readFileSync(PHASE15_ACCESS_LOG, "utf8").split("\n").map((l) => l.trim()).filter(Boolean);
 }
 
-async function waitForNextPhase15AccessLine(startCount) {
+async function waitForNextPhase15AccessLine(startCount, uriIncludes = null) {
+  // Filter by URI when provided: phase15-access.log is shared across many
+  // locations, and bun may run sibling tests concurrently — taking the last
+  // fresh line without a URI match is a flake source.
+  // Also require the full llm_phase15 field count so a partial/wrong line
+  // never surfaces as undefined translationHappened/etc.
+  const minFields = 11;
   for (let i = 0; i < 40; i += 1) {
     const lines = readPhase15AccessLines();
-    if (lines.length > startCount) return lines.at(-1);
+    const fresh = lines.slice(startCount);
+    const match = [...fresh].reverse().find((line) => {
+      if (uriIncludes && !line.includes(uriIncludes)) return false;
+      return line.split("|").length >= minFields;
+    });
+    if (match) return match;
     await Bun.sleep(50);
   }
-  throw new Error("timeout waiting for Phase 15 access log line");
+  throw new Error(
+    uriIncludes
+      ? `timeout waiting for Phase 15 access log line containing ${uriIncludes}`
+      : "timeout waiting for Phase 15 access log line",
+  );
 }
 
 function parsePhase15AccessLine(line) {
@@ -274,9 +289,9 @@ describe("llm-proxy module", () => {
 
   afterAll(async () => {
     await stopNginz();
-    authCaptureMock.stop();
-    openaiDynamicMock.stop();
-    anthropicDynamicMock.stop();
+    try { authCaptureMock?.stop(); } catch {}
+    try { openaiDynamicMock?.stop(); } catch {}
+    try { anthropicDynamicMock?.stop(); } catch {}
     cleanupRuntime(MODULE);
     delete process.env.LLMAUTH_TEST_OPENAI_KEY;
     delete process.env.LLMAUTH_TEST_ANTHROPIC_KEY;
@@ -289,19 +304,19 @@ describe("llm-proxy module", () => {
   // ── Phase 1: header filter ───────────────────────────────────────────────
   describe("llm_proxy directive", () => {
     test("adds X-LLM-Proxy header when enabled", async () => {
-      const res = await fetch(`${TEST_URL}/llm`);
+      const res = await fetch(`${TEST_URL}/llm`, { headers: { Connection: "close" } });
       expect(res.status).toBe(200);
       expect(res.headers.get("x-llm-proxy")).toBe("nginz-token");
     });
 
     test("does not add X-LLM-Proxy header when not enabled", async () => {
-      const res = await fetch(`${TEST_URL}/plain`);
+      const res = await fetch(`${TEST_URL}/plain`, { headers: { Connection: "close" } });
       expect(res.status).toBe(200);
       expect(res.headers.get("x-llm-proxy")).toBeNull();
     });
 
     test("response body is unmodified", async () => {
-      const res = await fetch(`${TEST_URL}/llm`);
+      const res = await fetch(`${TEST_URL}/llm`, { headers: { Connection: "close" } });
       const body = await res.text();
       expect(body).toBe('{"status":"ok"}');
     });
@@ -449,7 +464,7 @@ describe("llm-proxy module", () => {
   // ── Phase 2: variable exposure before context ────────────────────────────
   describe("variable exposure", () => {
     test("$llm_provider and $llm_model are absent when llm_proxy is not enabled", async () => {
-      const res = await fetch(`${TEST_URL}/var-echo`);
+      const res = await fetch(`${TEST_URL}/var-echo`, { headers: { Connection: "close" } });
       expect(res.status).toBe(200);
       // nginx suppresses add_header for empty variables by default
       expect(res.headers.get("x-llm-provider")).toBeNull();
@@ -610,7 +625,7 @@ describe("llm-proxy module", () => {
     });
 
     test("ssi subrequests to llm_proxy locations are rejected before upstream execution", async () => {
-      const res = await fetch(`${TEST_URL}/subrequest-ssi-parent`);
+      const res = await fetch(`${TEST_URL}/subrequest-ssi-parent`, { headers: { Connection: "close" } });
       expect(res.status).toBe(200);
       expect(await res.text()).toContain("403 Forbidden");
       expect(openaiDynamicMock.getRequestCount()).toBe(0);
@@ -618,14 +633,15 @@ describe("llm-proxy module", () => {
     });
 
     test("auth_request subrequests to llm_proxy locations fail closed", async () => {
-      const res = await fetch(`${TEST_URL}/subrequest-auth-parent`);
+      // 403 closes the connection; Connection: close keeps Bun from reusing it.
+      const res = await fetch(`${TEST_URL}/subrequest-auth-parent`, { headers: { Connection: "close" } });
       expect(res.status).toBe(403);
       expect(openaiDynamicMock.getRequestCount()).toBe(0);
       expect(anthropicDynamicMock.getRequestCount()).toBe(0);
     });
 
     test("mirror subrequests to llm_proxy locations do not reach upstream", async () => {
-      const res = await fetch(`${TEST_URL}/subrequest-mirror-parent`);
+      const res = await fetch(`${TEST_URL}/subrequest-mirror-parent`, { headers: { Connection: "close" } });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ choices: [{ message: { content: "ok" } }] });
       await Bun.sleep(100);
@@ -843,6 +859,7 @@ describe("llm-proxy module", () => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Connection: "close",
             "anthropic-version": "1999-01-01",
           },
           body: JSON.stringify({
@@ -3017,7 +3034,7 @@ describe("llm-proxy module", () => {
     async function postPhase20(path, body) {
       return fetch(`${TEST_URL}${path}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", Connection: "close" },
         body: JSON.stringify(body),
       });
     }
@@ -3227,7 +3244,7 @@ describe("llm-proxy module", () => {
         const startCount = readPhase20Lines().length;
         await fetch(`${TEST_URL}/phase20-openai-cached-stream`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", Connection: "close" },
           body: JSON.stringify({ model: "gpt-4o", stream: true, messages: [{ role: "user", content: "hi" }] }),
         }).then(r => r.text());
         const line = await waitForPhase20Line(startCount);
@@ -3243,7 +3260,7 @@ describe("llm-proxy module", () => {
         const startCount = readPhase20Lines().length;
         await fetch(`${TEST_URL}/phase20-openai-cached-stream`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", Connection: "close" },
           body: JSON.stringify({ model: "gpt-4o", stream: true, messages: [{ role: "user", content: "ok" }] }),
         }).then(r => r.text());
         const line = await waitForPhase20Line(startCount);
@@ -3257,7 +3274,7 @@ describe("llm-proxy module", () => {
         const startCount = readPhase20Lines().length;
         await fetch(`${TEST_URL}/phase20-openai-cached-stream`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", Connection: "close" },
           body: JSON.stringify({ model: "gpt-4o", stream: true, messages: [{ role: "user", content: "ok" }] }),
         }).then(r => r.text());
         const line = await waitForPhase20Line(startCount);
@@ -3316,7 +3333,7 @@ describe("llm-proxy module", () => {
         const startCount = readPhase20Lines().length;
         await fetch(`${TEST_URL}/phase20-anthropic-cached-stream`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", Connection: "close" },
           body: JSON.stringify({ model: "claude-3-sonnet-20240229", stream: true, messages: [{ role: "user", content: "hi" }] }),
         }).then(r => r.text());
         const line = await waitForPhase20Line(startCount);
@@ -3332,7 +3349,7 @@ describe("llm-proxy module", () => {
         const startCount = readPhase20Lines().length;
         await fetch(`${TEST_URL}/phase20-anthropic-cached-stream`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", Connection: "close" },
           body: JSON.stringify({ model: "claude-3-sonnet-20240229", stream: true, messages: [{ role: "user", content: "ok" }] }),
         }).then(r => r.text());
         const line = await waitForPhase20Line(startCount);
@@ -4077,7 +4094,10 @@ describe("llm-proxy module", () => {
           model: "vendor-model",
           messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
         });
-        const line = await waitForNextPhase15AccessLine(startCount);
+        const line = await waitForNextPhase15AccessLine(
+          startCount,
+          "/phase21-provider-name-no-dialect-guess",
+        );
         const p = parsePhase15AccessLine(line);
         expect(p.effectiveProvider).toBe("vendor-anthropic");
         expect(p.requestedDialect).toBe("anthropic");

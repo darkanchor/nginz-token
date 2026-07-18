@@ -242,7 +242,7 @@ describe("llm-fallback — phase 4: retry outcome", () => {
 
     const r = await fetch(`${TEST_URL}/p4-stream-suppressed`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Connection: "close" },
       body: JSON.stringify({
         model: "gpt-4",
         stream: true,

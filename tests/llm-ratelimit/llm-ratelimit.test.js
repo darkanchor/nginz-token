@@ -72,7 +72,12 @@ async function waitForRateLimitLog(runtimeDir, baselineCount, predicate, timeout
 }
 
 async function get(path, key = null, extraHeaders = {}) {
-  const headers = key ? { "x-rl-key": key, ...extraHeaders } : extraHeaders;
+  // Connection: close is required: many tests expect 429, and nginx closes the
+  // client connection after access-phase denials. Without this, Bun reuses a
+  // half-closed socket and the next fetch fails with ECONNRESET.
+  const headers = key
+    ? { "x-rl-key": key, Connection: "close", ...extraHeaders }
+    : { Connection: "close", ...extraHeaders };
   return fetch(`${TEST_URL}${path}`, { headers });
 }
 
@@ -332,7 +337,12 @@ describe("llm-ratelimit — phase 1 & 2", () => {
     await killAfterAccess("/rl-kill-spend", key, { "x-org-id": org });
     const next = await fetch(`${TEST_URL}/rl-kill-spend`, {
       method: "POST",
-      headers: { "x-rl-key": uniqueKey("kill-spend-next"), "x-org-id": org, "content-type": "application/json" },
+      headers: {
+        "x-rl-key": uniqueKey("kill-spend-next"),
+        "x-org-id": org,
+        "content-type": "application/json",
+        Connection: "close",
+      },
       body: JSON.stringify({ model: "gpt-4o", messages: [] }),
     });
     expect(next.status).toBe(429);

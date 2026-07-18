@@ -25,7 +25,12 @@ export class HTTPMock {
 
   stop() {
     if (this.server) {
-      this.server.stop();
+      // Force-close so the listen port is released promptly for the next suite.
+      try {
+        this.server.stop(true);
+      } catch {
+        try { this.server.stop(); } catch {}
+      }
       this.server = null;
     }
     this.routes.clear();
@@ -407,9 +412,24 @@ export class ProxyMock extends HTTPMock {
   }
 }
 
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 // Factory functions
 export function createHTTPMock(port = 9001) {
-  return new HTTPMock(port).start();
+  // Retry bind: sequential describes share remapped mock ports and Bun.serve
+  // can briefly reject re-bind after stop(true).
+  let lastError = null;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    if (attempt > 0) sleepSync(30 * attempt);
+    try {
+      return new HTTPMock(port).start();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError ?? new Error(`Failed to start HTTP mock on port ${port}`);
 }
 
 export function createStaticMock(port = 9002, files = {}) {

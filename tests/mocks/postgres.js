@@ -635,5 +635,18 @@ export class PostgresMock {
 }
 
 export function createPostgresMock(port = 5432) {
-  return new PostgresMock(port).start();
+  let lastError = null;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    if (attempt > 0) {
+      try {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30 * attempt);
+      } catch {}
+    }
+    try {
+      return new PostgresMock(port).start();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError ?? new Error(`Failed to start Postgres mock on port ${port}`);
 }
