@@ -2499,7 +2499,7 @@ describe("llm-proxy module", () => {
       expect(res.headers.get("x-fallback-attempt-count")).toBe("1");
       expect(res.headers.get("x-fallback-primary")).toBe("openai");
       expect(res.headers.get("x-fallback-effective")).toBeNull();
-      expect(res.headers.get("x-fallback-reason")).toBe("none");
+      expect(res.headers.get("x-fallback-reason")).toBeNull();
       expect(res.headers.get("x-fallback-policy-allowed")).toBe("0");
       expect(res.headers.get("x-fallback-policy-mismatch")).toBe("0");
       expect(openaiDynamicMock.getRequestCount()).toBe(1);
