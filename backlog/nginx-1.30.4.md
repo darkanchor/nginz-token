@@ -1,16 +1,21 @@
-# Deferred nginx 1.30.4 migration
+# nginx 1.30.4 migration
 
-Status: deferred until the next stable-release backlog batch.
+Status: applied.
 
-The published release must remain pinned to nginx 1.30.3 and retain its current
-Zig bindings. Do not apply any item below to an already released image.
+The nginx submodule is pinned to `release-1.30.4`
+(`017cf98dcce217946572a896f0992370475e189f`). HTTP and stream Zig bindings,
+layout assertions, and the C-vs-Zig `check-layout` step match the reviewed
+`nginz-token` 1.30.4 migration.
+
+Verification: `zig build -Doptimize=ReleaseSmall check-layout` reported
+247 checks with 0 mismatches.
 
 ## Upstream range
 
-- Current tag: `release-1.30.3`
-- Current commit: `47c3628d23efaa1bfb1a32afbe9e3d013f860c2c`
-- Target tag: `release-1.30.4`
-- Target commit: `017cf98dcce217946572a896f0992370475e189f`
+- Previous tag: `release-1.30.3`
+- Previous commit: `47c3628d23efaa1bfb1a32afbe9e3d013f860c2c`
+- Applied tag: `release-1.30.4`
+- Applied commit: `017cf98dcce217946572a896f0992370475e189f`
 - Review range: `release-1.30.3..release-1.30.4`
 
 The range contains nginx script-buffer bounds checks, stale regex-capture
@@ -21,7 +26,7 @@ must retain the same HTTP and stream binding/check-layout surface as
 `nginz-token`. Release timing is the intended difference between the two
 repositories; omitting stream compatibility work is not.
 
-## Required release-batch changes
+## Applied release-batch changes
 
 1. Update `submodules/nginx` from `release-1.30.3` to `release-1.30.4` and verify
    the gitlink points to `017cf98dcce217946572a896f0992370475e189f`.
@@ -65,10 +70,14 @@ bun test tests/llm-proxy/
 ```
 
 The full HTTP/core/stream reference result from the aligned 1.30.4 bindings is
-247 layout checks with zero mismatches. Retain the existing 221 passing
+247 layout checks with zero mismatches. `zig build -Doptimize=ReleaseSmall
+check-layout` reproduced that result. Retain the existing 221 passing
 `llm-proxy` tests as the application regression baseline.
 
-Before publishing replacement images:
+## Remaining before publishing replacement images
+
+The source/bindings batch is applied. Image publish and soak work is still
+separate:
 
 - confirm `nginz-token -V` reports nginx 1.30.4;
 - run configuration tests and startup smoke tests for every released image
@@ -80,9 +89,3 @@ Before publishing replacement images:
 - rebuild the complete stable image matrix from the same reviewed commit;
 - retain the last 1.30.3 image digests and rollback procedure until the new
   images pass the release soak.
-
-## Explicitly deferred
-
-This backlog entry records future work only. The nginx submodule, generated or
-manual Zig bindings, build graph, tests, and released Docker artifacts remain
-unchanged in the current stable release.

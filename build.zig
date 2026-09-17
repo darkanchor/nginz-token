@@ -12,6 +12,7 @@ const quickjs = @import("project/build_quickjs.zig");
 const stream = @import("project/build_stream.zig");
 const http_modules = @import("project/build_modules.zig");
 const package = @import("project/build_package.zig");
+const check_layout = @import("project/build_check_layout.zig");
 
 const NGINX = "src/ngx/nginx.zig";
 const required_zig_version = std.SemanticVersion{ .major = 0, .minor = 16, .patch = 0 };
@@ -392,4 +393,7 @@ pub fn build(b: *std.Build) void {
         const run = b.addRunArtifact(t);
         test_step.dependOn(&run.step);
     }
+
+    const check_layout_step = b.step("check-layout", "Check C vs Zig struct layout compatibility");
+    check_layout_step.dependOn(check_layout.addCheckLayoutSteps(b, target, optimize, nginx, patch_step));
 }
