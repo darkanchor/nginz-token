@@ -181,6 +181,16 @@ pub const HMAC_Update = ngx.HMAC_Update;
 pub const HMAC_Final = ngx.HMAC_Final;
 pub const EVP_MD = ngx.EVP_MD;
 
+extern fn EVP_Digest(data: ?*const anyopaque, count: usize, md: [*c]u8, size: *c_uint, kind: ?*const EVP_MD, impl: ?*ngx.ENGINE) c_int;
+
+pub fn sha256(input: []const u8) ![32]u8 {
+    var digest: [32]u8 = undefined;
+    var len: c_uint = 0;
+    if (EVP_Digest(input.ptr, input.len, &digest, &len, EVP_sha256(), null) != 1 or len != digest.len)
+        return core.NError.SSL_ERROR;
+    return digest;
+}
+
 const ERR_get_error = ngx.ERR_get_error;
 const ERR_error_string_n = ngx.ERR_error_string_n;
 const ERR_print_errors_cb = ngx.ERR_print_errors_cb;

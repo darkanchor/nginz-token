@@ -2,6 +2,7 @@ import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:tes
 import { mkdirSync, rmSync, readFileSync } from "fs";
 import { join } from "path";
 import { spawnSync } from "bun";
+import { createHash } from "node:crypto";
 import {
   startNginz,
   stopNginz,
@@ -24,6 +25,8 @@ const ENV_TENANT_B_OPENAI_VAL = "sk-tenant-b-openai-placeholder";
 const ENV_PROJECT_A_VAL = "sk-project-a-openai-placeholder";
 const ENV_PROJECT_B_VAL = "sk-project-b-openai-placeholder";
 const ENV_ORG_VAL = "sk-org-openai-placeholder";
+const identifierFingerprint = (identifier) =>
+  `id:${createHash("sha256").update(identifier).digest("hex").slice(0, 24)}`;
 describe("llm-auth module", () => {
   let authCaptureMock;
 
@@ -380,7 +383,7 @@ describe("llm-auth module", () => {
       expect(res.status).toBe(200);
       expect(res.headers.get("x-llm-auth-key-source")).toBe("env");
       const fingerprint = res.headers.get("x-llm-auth-key-fingerprint");
-      expect(fingerprint).toStartWith("id:");
+      expect(fingerprint).toBe(identifierFingerprint("env:LLMAUTH_TEST_OPENAI_KEY"));
       expect(fingerprint).not.toContain(ENV_OPENAI_VAL);
       expect(res.headers.get("x-llm-auth-fail-reason")).toBeNull();
     });
@@ -435,7 +438,7 @@ describe("llm-auth module", () => {
       expect(res.headers.get("x-llm-auth-key-source")).toBe("literal");
       const literalFingerprint = res.headers.get("x-llm-auth-key-fingerprint");
       expect(literalFingerprint).toBeTruthy();
-      expect(literalFingerprint).toMatch(/^id:[0-9a-f]{24}$/);
+      expect(literalFingerprint).toBe(identifierFingerprint("literal"));
       expect(literalFingerprint).not.toContain("cred-openai");
       // To observe key_source we need a location that exposes it; use env-openai-resolved for comparison.
       const res2 = await post("/env-openai-resolved");
@@ -444,7 +447,7 @@ describe("llm-auth module", () => {
       expect(res3.headers.get("x-llm-auth-key-source")).toBe("file");
       const fileFingerprint = res3.headers.get("x-llm-auth-key-fingerprint");
       expect(fileFingerprint).toBeTruthy();
-      expect(fileFingerprint).toMatch(/^id:[0-9a-f]{24}$/);
+      expect(fileFingerprint).toBe(identifierFingerprint("file:fixtures/openai-test.key"));
       expect(fileFingerprint).not.toContain("openai-test.key");
       expect(literalFingerprint).not.toBe(fileFingerprint);
       // All three adapters produce resolved status when the secret is present.

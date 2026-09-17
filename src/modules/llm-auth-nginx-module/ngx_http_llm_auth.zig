@@ -215,14 +215,14 @@ fn resolve_file_secret_path(cf: [*c]ngx_conf_t, raw_path: []const u8) ngx_str_t 
     const conf_name = cf.*.conf_file.*.file.name;
     const conf_path = core.slicify(u8, conf_name.data, conf_name.len);
     const slash = std.mem.lastIndexOfScalar(u8, conf_path, '/') orelse return empty_str;
-    const joined = std.fmt.allocPrint(
-        std.heap.page_allocator,
-        "{s}/{s}",
-        .{ conf_path[0..slash], raw_path },
-    ) catch return empty_str;
-    defer std.heap.page_allocator.free(joined);
-
-    return copy_cstring_to_pool(joined, cf.*.pool) orelse empty_str;
+    const joined_len = std.math.add(usize, slash + 1, raw_path.len) catch return empty_str;
+    const capacity = std.math.add(usize, joined_len, 1) catch return empty_str;
+    const joined = core.castPtr(u8, core.ngx_pnalloc(cf.*.pool, capacity)) orelse return empty_str;
+    @memcpy(joined[0..slash], conf_path[0..slash]);
+    joined[slash] = '/';
+    @memcpy(joined[slash + 1 .. joined_len], raw_path);
+    joined[joined_len] = 0;
+    return ngx_str_t{ .data = joined, .len = joined_len };
 }
 
 // resolve_secret_config resolves the secret value for a credential identifier
@@ -306,8 +306,7 @@ fn fingerprint_for_identifier(identifier: ngx_str_t, pool: [*c]core.ngx_pool_t) 
     else
         "literal";
 
-    var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(source, &digest, .{});
+    const digest = ngx.ssl.sha256(source) catch return empty_str;
     const encoded = std.fmt.bytesToHex(digest[0..12], .lower);
     var scratch: [3 + encoded.len]u8 = undefined;
     const rendered = std.fmt.bufPrint(&scratch, "id:{s}", .{encoded}) catch return empty_str;
