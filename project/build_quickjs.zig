@@ -1,10 +1,11 @@
 const std = @import("std");
-const common = @import("build_common.zig");
+
+const quickjs_version = std.mem.trim(u8, @embedFile("../submodules/quickjs/VERSION"), &std.ascii.whitespace);
 
 pub const QUICKJS_C_FLAGS = [_][]const u8{
     "-std=gnu11",
     "-D_GNU_SOURCE",
-    "-DCONFIG_VERSION=\"2024-02-14\"",
+    std.fmt.comptimePrint("-DCONFIG_VERSION=\"{s}\"", .{quickjs_version}),
     "-DCONFIG_BIGNUM",
     "-DHAVE_CLOSEFROM",
     "-Wall",
@@ -12,6 +13,10 @@ pub const QUICKJS_C_FLAGS = [_][]const u8{
     "-Wno-sign-compare",
     "-Wno-missing-field-initializers",
     "-Wno-cast-function-type-mismatch",
+    // QuickJS casts typed allocators (e.g. js_realloc_rt) to DynBuf's
+    // void-pointer callback. Disable only that C function-type check;
+    // ReleaseSafe and the remaining C/Zig safety checks stay enabled.
+    "-fno-sanitize=function",
     "-Wundef",
     "-Wuninitialized",
     "-Wunused",
@@ -34,14 +39,14 @@ const files = [_][]const u8{
 pub fn build_quickjs(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
 ) *std.Build.Step.Compile {
     const quickjs = b.addLibrary(.{
         .name = "quickjs",
         .root_module = b.createModule(.{
             .pic = true,
             .target = target,
-            .optimize = common.c_optimize(optimize),
+            .optimize = optimize,
             .link_libc = true,
         }),
     });

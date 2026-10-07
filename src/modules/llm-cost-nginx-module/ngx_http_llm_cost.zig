@@ -868,8 +868,7 @@ fn writerRetry() void {
     if (ngx_exiting != 0 and g_pg_writer.exit_deadline == 0)
         g_pg_writer.exit_deadline = ngx_current_msec + PG_IO_TIMEOUT_MS;
     if (g_pg_writer.exit_deadline != 0 and ngx_current_msec >= g_pg_writer.exit_deadline) {
-        ngx.log.ngz_log_error(ngx.log.NGX_LOG_ERR, g_pg_writer.log, 0,
-            "llm-cost: postgres graceful-drain deadline expired; %uz queued events remain recoverable from accounting logs", .{g_pg_writer.count});
+        ngx.log.ngz_log_error(ngx.log.NGX_LOG_ERR, g_pg_writer.log, 0, "llm-cost: postgres graceful-drain deadline expired; %uz queued events remain recoverable from accounting logs", .{g_pg_writer.count});
         g_pg_writer.count = 0;
         g_pg_writer.stopping = true;
         return;
@@ -912,17 +911,32 @@ fn writerStartQuery() void {
         const item = &g_pg_writer.queue[queue_index];
         const item_values = [PG_EVENT_PARAM_COUNT][*c]const u8{
             if (item.event_id[0] != 0) @ptrCast(&item.event_id) else null,
-            @ptrCast(&item.provider), @ptrCast(&item.model),
-            @ptrCast(&item.cost_unit), @ptrCast(&item.cohort), @ptrCast(&item.streaming),
-            @ptrCast(&item.prompt_tokens), @ptrCast(&item.completion_tokens), @ptrCast(&item.total_tokens),
-            @ptrCast(&item.prompt_cost), @ptrCast(&item.completion_cost), @ptrCast(&item.total_cost),
-            @ptrCast(&item.status), @ptrCast(&item.status_code),
+            @ptrCast(&item.provider),
+            @ptrCast(&item.model),
+            @ptrCast(&item.cost_unit),
+            @ptrCast(&item.cohort),
+            @ptrCast(&item.streaming),
+            @ptrCast(&item.prompt_tokens),
+            @ptrCast(&item.completion_tokens),
+            @ptrCast(&item.total_tokens),
+            @ptrCast(&item.prompt_cost),
+            @ptrCast(&item.completion_cost),
+            @ptrCast(&item.total_cost),
+            @ptrCast(&item.status),
+            @ptrCast(&item.status_code),
             if (item.duration_valid) @ptrCast(&item.duration_ms) else null,
-            @ptrCast(&item.identity), @ptrCast(&item.user), @ptrCast(&item.team),
-            @ptrCast(&item.auth_fingerprint), @ptrCast(&item.rate_card_version),
-            @ptrCast(&item.requested_provider), @ptrCast(&item.requested_model),
-            @ptrCast(&item.translation_happened), @ptrCast(&item.resolution_outcome),
-            @ptrCast(&item.org), @ptrCast(&item.project), @ptrCast(&item.client),
+            @ptrCast(&item.identity),
+            @ptrCast(&item.user),
+            @ptrCast(&item.team),
+            @ptrCast(&item.auth_fingerprint),
+            @ptrCast(&item.rate_card_version),
+            @ptrCast(&item.requested_provider),
+            @ptrCast(&item.requested_model),
+            @ptrCast(&item.translation_happened),
+            @ptrCast(&item.resolution_outcome),
+            @ptrCast(&item.org),
+            @ptrCast(&item.project),
+            @ptrCast(&item.client),
         };
         @memcpy(values[value_index .. value_index + PG_EVENT_PARAM_COUNT], &item_values);
         value_index += PG_EVENT_PARAM_COUNT;
@@ -953,18 +967,16 @@ fn writerFinishQuery() void {
         pq.pgClear(result);
     }
     if (sql_failed and g_pg_writer.active_batch_count > 1) {
-        ngx.log.ngz_log_error(ngx.log.NGX_LOG_WARN, g_pg_writer.log, 0,
-            "llm-cost: postgres batch of %uz events failed; retrying individually to isolate poison event", .{g_pg_writer.active_batch_count});
+        ngx.log.ngz_log_error(ngx.log.NGX_LOG_WARN, g_pg_writer.log, 0, "llm-cost: postgres batch of %uz events failed; retrying individually to isolate poison event", .{g_pg_writer.active_batch_count});
         g_pg_writer.single_fallback_remaining = g_pg_writer.active_batch_count;
     } else if (sql_failed) {
         const item = &g_pg_writer.queue[g_pg_writer.head];
-        ngx.log.ngz_log_error(ngx.log.NGX_LOG_ERR, g_pg_writer.log, 0,
-            "llm-cost: async postgres SQL failure; recovery_event_id=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s prompt_cost=%s completion_cost=%s total_cost=%s", .{
-                @as([*c]u8, @ptrCast(&item.event_id)), @as([*c]u8, @ptrCast(&item.prompt_tokens)),
-                @as([*c]u8, @ptrCast(&item.completion_tokens)), @as([*c]u8, @ptrCast(&item.total_tokens)),
-                @as([*c]u8, @ptrCast(&item.prompt_cost)), @as([*c]u8, @ptrCast(&item.completion_cost)),
-                @as([*c]u8, @ptrCast(&item.total_cost)),
-            });
+        ngx.log.ngz_log_error(ngx.log.NGX_LOG_ERR, g_pg_writer.log, 0, "llm-cost: async postgres SQL failure; recovery_event_id=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s prompt_cost=%s completion_cost=%s total_cost=%s", .{
+            @as([*c]u8, @ptrCast(&item.event_id)),          @as([*c]u8, @ptrCast(&item.prompt_tokens)),
+            @as([*c]u8, @ptrCast(&item.completion_tokens)), @as([*c]u8, @ptrCast(&item.total_tokens)),
+            @as([*c]u8, @ptrCast(&item.prompt_cost)),       @as([*c]u8, @ptrCast(&item.completion_cost)),
+            @as([*c]u8, @ptrCast(&item.total_cost)),
+        });
         g_pg_writer.dropped_sql +%= 1;
         writerPop();
         if (g_pg_writer.single_fallback_remaining > 0) g_pg_writer.single_fallback_remaining -= 1;
@@ -1620,11 +1632,10 @@ fn writerExitProcess(cycle: [*c]core.ngx_cycle_t) callconv(.c) void {
     if (g_pg_writer.kick.flags.timer_set) event.ngx_event_del_timer(&g_pg_writer.kick);
     event.ngz_delete_posted_event(&g_pg_writer.kick);
     if (g_pg_writer.count > 0) {
-        ngx.log.ngz_log_error(ngx.log.NGX_LOG_ERR, g_pg_writer.log, 0,
-            "llm-cost: worker exiting with %uz unwritten postgres events; enqueued=%uL written=%uL dropped_full=%uL dropped_sql=%uL", .{
-                g_pg_writer.count, g_pg_writer.enqueued, g_pg_writer.written,
-                g_pg_writer.dropped_full, g_pg_writer.dropped_sql,
-            });
+        ngx.log.ngz_log_error(ngx.log.NGX_LOG_ERR, g_pg_writer.log, 0, "llm-cost: worker exiting with %uz unwritten postgres events; enqueued=%uL written=%uL dropped_full=%uL dropped_sql=%uL", .{
+            g_pg_writer.count,        g_pg_writer.enqueued,    g_pg_writer.written,
+            g_pg_writer.dropped_full, g_pg_writer.dropped_sql,
+        });
     }
     writerDisconnect();
 }

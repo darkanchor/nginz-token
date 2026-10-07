@@ -13,7 +13,11 @@ const NginxMetadata = struct {
 /// Compile and run a tiny C probe against a configured nginx source tree to
 /// extract both NGX_MODULE_SIGNATURE and nginx_version. The probe is written to
 /// /tmp, compiled with cc, and executed; stdout is parsed into both values.
-fn computeMetadata(allocator: std.mem.Allocator, io: std.Io, nginx_src: []const u8) !NginxMetadata {
+fn computeMetadata(b: *std.Build, nginx_src: []const u8) !NginxMetadata {
+    // The host compiler and external configured headers are observed here.
+    b.graph.poisonCache();
+    const allocator = b.allocator;
+    const io = b.graph.io;
     const probe_src =
         \\#include <ngx_config.h>
         \\#include <ngx_core.h>
@@ -34,16 +38,27 @@ fn computeMetadata(allocator: std.mem.Allocator, io: std.Io, nginx_src: []const 
 
     const compile_argv = [_][]const u8{
         "cc",
-        "-I", try std.fs.path.join(allocator, &.{ nginx_src, "src/core" }),
-        "-I", try std.fs.path.join(allocator, &.{ nginx_src, "src/event" }),
-        "-I", try std.fs.path.join(allocator, &.{ nginx_src, "src/event/quic" }),
-        "-I", try std.fs.path.join(allocator, &.{ nginx_src, "src/http" }),
-        "-I", try std.fs.path.join(allocator, &.{ nginx_src, "src/http/v2" }),
-        "-I", try std.fs.path.join(allocator, &.{ nginx_src, "src/http/v3" }),
-        "-I", try std.fs.path.join(allocator, &.{ nginx_src, "src/os/unix" }),
-        "-I", try std.fs.path.join(allocator, &.{ nginx_src, "src/stream" }),
-        "-I", objs,
-        probe_c, "-o", probe_exe,
+        "-I",
+        try std.fs.path.join(allocator, &.{ nginx_src, "src/core" }),
+        "-I",
+        try std.fs.path.join(allocator, &.{ nginx_src, "src/event" }),
+        "-I",
+        try std.fs.path.join(allocator, &.{ nginx_src, "src/event/quic" }),
+        "-I",
+        try std.fs.path.join(allocator, &.{ nginx_src, "src/http" }),
+        "-I",
+        try std.fs.path.join(allocator, &.{ nginx_src, "src/http/v2" }),
+        "-I",
+        try std.fs.path.join(allocator, &.{ nginx_src, "src/http/v3" }),
+        "-I",
+        try std.fs.path.join(allocator, &.{ nginx_src, "src/os/unix" }),
+        "-I",
+        try std.fs.path.join(allocator, &.{ nginx_src, "src/stream" }),
+        "-I",
+        objs,
+        probe_c,
+        "-o",
+        probe_exe,
     };
 
     const compile_res = try std.process.run(allocator, io, .{ .argv = &compile_argv });
@@ -84,7 +99,7 @@ fn computeMetadata(allocator: std.mem.Allocator, io: std.Io, nginx_src: []const 
 pub fn createDynmodSteps(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     nginx: *std.Build.Module,
     cjson_lib: *std.Build.Step.Compile,
     libinjection_lib: *std.Build.Step.Compile,
@@ -97,7 +112,7 @@ pub fn createDynmodSteps(
     const dynmod_step = b.step("dynmod", "Build nginx dynamic module .so files (load_module compatible)");
 
     const metadata: NginxMetadata = if (nginx_src) |src|
-        computeMetadata(b.allocator, b.graph.io, src) catch |err| blk: {
+        computeMetadata(b, src) catch |err| blk: {
             std.debug.print("dynmod: metadata probe failed ({s}), falling back to defaults\n", .{@errorName(err)});
             break :blk .{ .signature = DEFAULT_SIGNATURE, .version = DEFAULT_VERSION };
         }

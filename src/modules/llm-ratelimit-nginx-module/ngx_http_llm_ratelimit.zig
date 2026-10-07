@@ -475,7 +475,7 @@ fn getOrCreateSpendEntry(store: *llm_spend_store, key_hash: u64, ym: u32, now_mi
         const e: *SpendEntry = &stripe.entries[count];
         // Publish the active-prefix length last. If a worker dies during
         // initialization, the next owner cannot observe a partial entry.
-        e.* = .{ .key_hash = 0, .spend_micros = 0, .year_month = ym, .last_used = now_min, ._pad = [1]u8{0} ** 32 };
+        e.* = .{ .key_hash = 0, .spend_micros = 0, .year_month = ym, .last_used = now_min, ._pad = @splat(0) };
         @atomicStore(u64, &e.key_hash, key_hash, .release);
         @atomicStore(ngx_uint_t, &stripe.entry_count, @intCast(count + 1), .release);
         return e;
@@ -680,7 +680,7 @@ fn getOrCreateEntry(store: *llm_ratelimit_store, key_hash: u64, now_min: i64) *L
             .window_minute = now_min,
             .last_used = now_min,
             .cooldown_until_ms = 0,
-            ._pad = [1]u8{0} ** 16,
+            ._pad = @splat(0),
         };
         @atomicStore(u64, &e.key_hash, key_hash, .release);
         @atomicStore(ngx_uint_t, &stripe.entry_count, @intCast(count + 1), .release);

@@ -4,8 +4,20 @@ import { join, dirname, isAbsolute, basename } from "path";
 
 let nginzProcess = null;
 const NGINZ_BIN = "./zig-out/bin/nginz-token";
-export const DEFAULT_PERF_OPTIMIZE = "ReleaseSmall";
+export const DEFAULT_PERF_OPTIMIZE = "ReleaseSafe";
 const BUILD_LOCK_PATH = join(process.cwd(), ".zig-build.lock");
+// Keep in sync with required_zig_version in build.zig.
+const REQUIRED_ZIG_VERSION = "0.17.0";
+const ZIG = process.env.ZIG || "zig";
+
+function zigVersion() {
+  try {
+    const result = spawnSync([ZIG, "version"], { stdout: "pipe", stderr: "pipe" });
+    return result.exitCode === 0 ? Buffer.from(result.stdout).toString().trim() : null;
+  } catch {
+    return null;
+  }
+}
 const LEGACY_PORTS = [
   // nginx listen / internal mock upstreams
   8888, 8889, 8891, 8892, 8895,
@@ -120,9 +132,9 @@ export function materializeTestConfig(configPath, moduleName, outputDir) {
 }
 
 // Build nginz before running tests
-// For performance-oriented runs, prefer ZIG_OPTIMIZE=ReleaseSmall.
-// ReleaseSmall is the project-recommended release-grade mode: it keeps safety
-// checks on and avoids the ReleaseSafe LLVM/memory issues documented in the repo.
+// For performance-oriented runs, prefer ZIG_OPTIMIZE=ReleaseSafe.
+// ReleaseSafe is the recommended optimized mode for Zig 0.17. The build
+// preserves the requested mode for both Zig modules and C libraries.
 function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
@@ -142,9 +154,16 @@ function acquireBuildLock(timeoutMs = 120000) {
 }
 
 export function ensureBuild() {
+  const version = zigVersion();
+  if (version !== REQUIRED_ZIG_VERSION) {
+    throw new Error(
+      `nginz-token requires Zig ${REQUIRED_ZIG_VERSION}, but ${ZIG} reports ${version ?? "an unknown version"}.\n` +
+      `Set ZIG=/path/to/zig-x86_64-linux-${REQUIRED_ZIG_VERSION}/zig or put that directory first on PATH.`,
+    );
+  }
   const lockFd = acquireBuildLock();
   const optimize = process.env.ZIG_OPTIMIZE;
-  const args = ["zig", "build"];
+  const args = [ZIG, "build"];
 
   try {
     if (optimize) {

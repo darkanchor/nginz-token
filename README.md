@@ -208,10 +208,15 @@ bun test tests/llm-cost/
 bun test tests/llm-security/
 ```
 
-For release-grade local verification, prefer `ReleaseSmall`:
+For release-grade local verification, prefer `ReleaseSafe`. Select Zig 0.17.0
+with `ZIG=/path/to/zig-0.17.0/zig` when it is not on `PATH`. The build preserves
+the requested optimization mode. QuickJS and njs exclude only C callback-type
+checks; njs also excludes its NaN key-index conversion check. Zig safety checks
+remain enabled.
+
 
 ```bash
-ZIG_OPTIMIZE=ReleaseSmall bun test tests/llm-proxy/
+ZIG_OPTIMIZE=ReleaseSafe bun test tests/llm-proxy/
 ```
 
 ## Testing

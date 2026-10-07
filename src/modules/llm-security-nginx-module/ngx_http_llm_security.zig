@@ -85,7 +85,8 @@ pub const LlmSecurityOutcome = contract.LlmSecurityOutcome;
 const empty_str = ngx_str_t{ .len = 0, .data = @constCast("") };
 
 fn cast(loc: ?*anyopaque) ?*llm_security_loc_conf {
-    return @ptrCast(core.castPtr(llm_security_loc_conf, loc));
+    const p = core.castPtr(llm_security_loc_conf, loc) orelse return null;
+    return @ptrCast(p);
 }
 
 fn get_ctx(r: [*c]ngx_http_request_t) ?[*c]LlmSecurityCtx {
@@ -93,10 +94,11 @@ fn get_ctx(r: [*c]ngx_http_request_t) ?[*c]LlmSecurityCtx {
 }
 
 fn get_main_conf(r: [*c]ngx_http_request_t) ?*llm_security_main_conf {
-    return @ptrCast(@alignCast(core.castPtr(
+    const p = core.castPtr(
         llm_security_main_conf,
         conf.ngx_http_get_module_main_conf(r, &ngx_http_llm_security_module),
-    )));
+    ) orelse return null;
+    return @ptrCast(p);
 }
 
 fn resolveUintVar(r: [*c]ngx_http_request_t, idx: core.ngx_int_t) ?ngx_uint_t {
@@ -1264,3 +1266,9 @@ export var ngx_http_llm_security_module = ngx.module.make_module(
     @constCast(&ngx_http_llm_security_commands),
     @constCast(&ngx_http_llm_security_module_ctx),
 );
+
+test "configuration pointer cast preserves null and the pointee" {
+    var loc: llm_security_loc_conf = undefined;
+    try std.testing.expect(cast(null) == null);
+    try std.testing.expect(cast(&loc).? == &loc);
+}

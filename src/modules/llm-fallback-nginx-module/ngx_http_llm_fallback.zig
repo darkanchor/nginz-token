@@ -36,9 +36,9 @@ const MAX_FALLBACK_ROUTES: usize = 16;
 const MAX_FALLBACK_REPLACES: usize = 16;
 
 // Milestone 2 Target 3: translation fallback policy values.
-pub const TRANSLATION_FALLBACK_ALLOW: ngx_uint_t = 0;      // default: cross-dialect fallback allowed
+pub const TRANSLATION_FALLBACK_ALLOW: ngx_uint_t = 0; // default: cross-dialect fallback allowed
 pub const TRANSLATION_FALLBACK_DISCOURAGE: ngx_uint_t = 1; // allowed but marked as policy_mismatch
-pub const TRANSLATION_FALLBACK_FORBID: ngx_uint_t = 2;     // cross-dialect fallback forbidden; mark suppressed
+pub const TRANSLATION_FALLBACK_FORBID: ngx_uint_t = 2; // cross-dialect fallback forbidden; mark suppressed
 
 // Milestone 2 Target 2: optional model override on a fallback route.
 // target_model is empty for routes without a model override (provider-only replacement).
@@ -127,7 +127,8 @@ fn has_cycle(routes: *const [MAX_FALLBACK_ROUTES]FallbackRoute, count: usize) bo
 }
 
 fn cast(loc: ?*anyopaque) ?*llm_fallback_loc_conf {
-    return @ptrCast(core.castPtr(llm_fallback_loc_conf, loc));
+    const p = core.castPtr(llm_fallback_loc_conf, loc) orelse return null;
+    return @ptrCast(p);
 }
 
 // ── Exported policy API (consumed by llm-proxy) ───────────────────────────────
@@ -325,14 +326,12 @@ fn merge_loc_conf(cf: [*c]ngx_conf_t, parent: ?*anyopaque, child: ?*anyopaque) c
     const n: usize = @intCast(c.routes_count);
 
     if (has_duplicate_primary(&c.routes, n)) {
-        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0,
-            "llm_fallback_route: duplicate primary provider; each provider may appear as primary at most once", .{});
+        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0, "llm_fallback_route: duplicate primary provider; each provider may appear as primary at most once", .{});
         return conf.NGX_CONF_ERROR;
     }
 
     if (has_cycle(&c.routes, n)) {
-        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0,
-            "llm_fallback_route: cyclic fallback graph detected; routes must form a directed acyclic chain", .{});
+        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0, "llm_fallback_route: cyclic fallback graph detected; routes must form a directed acyclic chain", .{});
         return conf.NGX_CONF_ERROR;
     }
 
@@ -361,8 +360,7 @@ fn ngx_conf_set_llm_fallback_route(
     const lccf = cast(loc) orelse return conf.NGX_CONF_ERROR;
 
     if (lccf.routes_count >= MAX_FALLBACK_ROUTES) {
-        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0,
-            "llm_fallback_route: route limit reached (max 16)", .{});
+        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0, "llm_fallback_route: route limit reached (max 16)", .{});
         return conf.NGX_CONF_ERROR;
     }
 
@@ -395,8 +393,7 @@ fn ngx_conf_set_llm_fallback_replace(
     const lccf = cast(loc) orelse return conf.NGX_CONF_ERROR;
 
     if (lccf.replaces_count >= MAX_FALLBACK_REPLACES) {
-        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0,
-            "llm_fallback_replace: replacement limit reached (max 16)", .{});
+        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0, "llm_fallback_replace: replacement limit reached (max 16)", .{});
         return conf.NGX_CONF_ERROR;
     }
 
@@ -434,8 +431,7 @@ fn ngx_conf_set_llm_fallback_translation_fallback(
     } else if (std.mem.eql(u8, s, "forbid")) {
         lccf.translation_fallback = TRANSLATION_FALLBACK_FORBID;
     } else {
-        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0,
-            "llm_fallback_translation_fallback: unknown value; expected allow, discourage, or forbid", .{});
+        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0, "llm_fallback_translation_fallback: unknown value; expected allow, discourage, or forbid", .{});
         return conf.NGX_CONF_ERROR;
     }
 
@@ -458,12 +454,10 @@ fn ngx_conf_set_llm_fallback_mode(
     if (std.mem.eql(u8, s, "basic")) {
         lccf.mode = FALLBACK_MODE_BASIC;
     } else if (std.mem.eql(u8, s, "advanced")) {
-        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0,
-            "llm_fallback_mode: advanced mode is not yet supported (Phase 5)", .{});
+        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0, "llm_fallback_mode: advanced mode is not yet supported (Phase 5)", .{});
         return conf.NGX_CONF_ERROR;
     } else {
-        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0,
-            "llm_fallback_mode: unknown mode; supported values are: basic", .{});
+        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0, "llm_fallback_mode: unknown mode; supported values are: basic", .{});
         return conf.NGX_CONF_ERROR;
     }
 
@@ -483,13 +477,11 @@ fn ngx_conf_set_llm_fallback_max_attempts(
     const arg = ngx.array.ngx_array_next(ngx_str_t, cf.*.args, &i) orelse return conf.NGX_CONF_ERROR;
     const s = core.slicify(u8, arg.*.data, arg.*.len);
     const n = std.fmt.parseInt(ngx_uint_t, s, 10) catch {
-        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0,
-            "llm_fallback_max_attempts: invalid value; expected a positive integer", .{});
+        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0, "llm_fallback_max_attempts: invalid value; expected a positive integer", .{});
         return conf.NGX_CONF_ERROR;
     };
     if (n == 0) {
-        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0,
-            "llm_fallback_max_attempts: value must be at least 1", .{});
+        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0, "llm_fallback_max_attempts: value must be at least 1", .{});
         return conf.NGX_CONF_ERROR;
     }
     lccf.max_attempts = n;
@@ -524,9 +516,7 @@ fn ngx_conf_set_llm_fallback_on(
         } else if (std.mem.eql(u8, token, "upstream_5xx")) {
             lccf.on_classes |= FALLBACK_CLASS_UPSTREAM_5XX;
         } else {
-            log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0,
-                "llm_fallback_on: unknown failure class '%V'; supported: connect_error transport_timeout rate_limited upstream_5xx",
-                .{&elts[idx]});
+            log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0, "llm_fallback_on: unknown failure class '%V'; supported: connect_error transport_timeout rate_limited upstream_5xx", .{&elts[idx]});
             return conf.NGX_CONF_ERROR;
         }
     }
@@ -553,8 +543,7 @@ fn ngx_conf_set_llm_fallback_allow_streaming(
     } else if (std.mem.eql(u8, s, "off")) {
         lccf.allow_streaming = 0;
     } else {
-        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0,
-            "llm_fallback_allow_streaming: invalid value; expected on or off", .{});
+        log.ngz_log_error(log.NGX_LOG_EMERG, cf.*.log, 0, "llm_fallback_allow_streaming: invalid value; expected on or off", .{});
         return conf.NGX_CONF_ERROR;
     }
 
@@ -739,4 +728,10 @@ test "status-based retryability treats status=0 as generic transport failure" {
     try std.testing.expectEqual(@as(ngx_flag_t, 1), is_retryable_status_with_classes(0, FALLBACK_CLASS_TRANSPORT_TIMEOUT));
     try std.testing.expectEqual(@as(ngx_flag_t, 1), is_retryable_status_with_classes(0, FALLBACK_CLASS_CONNECT_ERROR | FALLBACK_CLASS_TRANSPORT_TIMEOUT));
     try std.testing.expectEqual(@as(ngx_flag_t, 0), is_retryable_status_with_classes(0, FALLBACK_CLASS_RATE_LIMITED));
+}
+
+test "configuration pointer cast preserves null and the pointee" {
+    var loc: llm_fallback_loc_conf = undefined;
+    try std.testing.expect(cast(null) == null);
+    try std.testing.expect(cast(&loc).? == &loc);
 }

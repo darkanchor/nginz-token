@@ -2,47 +2,21 @@ const std = @import("std");
 const Build = std.Build;
 const Step = std.Build.Step;
 
-const Error = error{
-    PatchError,
-};
-
-var MAKEFILE: []const u8 = "project/nginz.makefile";
-
-fn patchOp(step: *Step, _: Build.Step.MakeOptions) anyerror!void {
-    const b = step.owner;
-    const result = try std.process.run(b.allocator, b.graph.io, .{
-        .argv = &[_][]const u8{ "make", "-f", MAKEFILE },
-    });
-
-    defer {
-        b.allocator.free(result.stdout);
-        b.allocator.free(result.stderr);
-    }
-
-    switch (result.term) {
-        .exited => |code| if (code != 0) {
-            std.debug.print("Patch failed with exit code {}:\n", .{code});
-            std.debug.print("STDOUT: {s}\n", .{result.stdout});
-            std.debug.print("STDERR: {s}\n", .{result.stderr});
-            return Error.PatchError;
-        },
-        else => {
-            std.debug.print("Patch terminated abnormally\n", .{});
-            std.debug.print("STDOUT: {s}\n", .{result.stdout});
-            std.debug.print("STDERR: {s}\n", .{result.stderr});
-            return Error.PatchError;
-        },
-    }
-
-    // std.debug.print("Patch applied successfully: {s}\n", .{result.stdout});
-}
-
+/// Apply the nginz patch to the nginx C entry point.
+///
+/// Let make track the source, patch, and configured headers. Its recipe only
+/// replaces nginz.c when the patched contents change, preserving cached builds
+/// without ignoring updated inputs or missing configuration files.
+/// Rewriting byte-identical C changes its mtime and triggers a roughly 5-second
+/// relink under Zig 0.17, which can exceed Bun's beforeAll hook timeout. Keep
+/// the Make recipes' compare-before-replace behavior when changing this step.
 pub fn patchStep(b: *Build, docker: bool) *Step {
-    const patch = b.step("patch", "patch nginz");
-    if (docker) {
-        MAKEFILE = "project/nginz.docker.makefile";
-    }
-    patch.makeFn = patchOp;
+    const makefile = if (docker) "project/nginz.docker.makefile" else "project/nginz.makefile";
+    const run = b.addSystemCommand(&.{ "make", "-f", makefile });
 
-    return patch;
+    // Preserve the historical `zig build patch` top-level step name.
+    const named = b.step("patch", "patch nginz");
+    named.dependOn(&run.step);
+
+    return &run.step;
 }

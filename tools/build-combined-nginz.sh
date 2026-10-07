@@ -7,12 +7,12 @@ nginx_source="$nginz_root/submodules/nginx"
 build_root=${COMBINED_BUILD_ROOT:-"${TMPDIR:-/tmp}/nginz-token-combined-nginx.$$"}
 trap 'rm -rf "$build_root"' EXIT HUP INT TERM
 
-zig build --build-file "$nginz_root/build.zig" --cache-dir "$nginz_root/.zig-cache" \
-    --global-cache-dir "${ZIG_GLOBAL_CACHE_DIR:-$HOME/.cache/zig}" \
-    -Doptimize=ReleaseSmall package
-zig build --build-file "$token_root/build.zig" --cache-dir "$token_root/.zig-cache" \
-    --global-cache-dir "${ZIG_GLOBAL_CACHE_DIR:-$HOME/.cache/zig}" \
-    -Doptimize=ReleaseSmall package
+ZIG_GLOBAL_CACHE_DIR="${ZIG_GLOBAL_CACHE_DIR:-$HOME/.cache/zig}" \
+"${ZIG:-zig}" build --build-file "$nginz_root/build.zig" --cache-dir "$nginz_root/.zig-cache" \
+    -Doptimize=ReleaseSafe package
+ZIG_GLOBAL_CACHE_DIR="${ZIG_GLOBAL_CACHE_DIR:-$HOME/.cache/zig}" \
+"${ZIG:-zig}" build --build-file "$token_root/build.zig" --cache-dir "$token_root/.zig-cache" \
+    -Doptimize=ReleaseSafe package
 
 quickjs_version=$(cat "$nginz_root/submodules/quickjs/VERSION")
 make -C "$nginz_root/submodules/quickjs" \
