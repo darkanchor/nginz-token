@@ -15,7 +15,7 @@ const package = @import("project/build_package.zig");
 const check_layout = @import("project/build_check_layout.zig");
 
 const NGINX = "src/ngx/nginx.zig";
-const required_zig_version = std.SemanticVersion{ .major = 0, .minor = 17, .patch = 0 };
+const required_zig_version = .{ .major = 0, .minor = 17 };
 
 var modules = [_][]const u8{
     "src/modules/llm-proxy-nginx-module/ngx_http_llm_proxy.zig",
@@ -106,10 +106,12 @@ fn requires_llm_fallback_test_support(path: []const u8) bool {
 
 pub fn build(b: *std.Build) void {
     comptime {
-        if (builtin.zig_version.order(required_zig_version) != .eq) {
+        if (builtin.zig_version.major != required_zig_version.major or
+            builtin.zig_version.minor != required_zig_version.minor)
+        {
             @compileError(std.fmt.comptimePrint(
-                "nginz-token requires Zig {f}; found Zig {f}.",
-                .{ required_zig_version, builtin.zig_version },
+                "nginz-token requires Zig {d}.{d}.x; found Zig {f}.",
+                .{ required_zig_version.major, required_zig_version.minor, builtin.zig_version },
             ));
         }
     }

@@ -19,7 +19,7 @@ These hard restrictions apply to nginx modules and their wrappers. Standalone Zi
 
 ## Build and test
 
-- Requires exactly Zig 0.17.0; set `ZIG=/path/to/zig-0.17.0/zig` for Bun tests.
+- Requires Zig 0.17.x; set `ZIG=/path/to/zig-0.17.0/zig` for Bun tests when the default toolchain is outside that series.
 - Build: `zig build -Doptimize=ReleaseSafe`
 - Unit tests: `zig build test`
 - Auth integration tests: `bun test ./tests/llm-auth/`
