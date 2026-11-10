@@ -8,6 +8,7 @@ import {
   configureTestPorts,
   getPort,
   materializeTestConfig,
+  waitForNewLogLine,
 } from "../harness.js";
 import { spawnSync } from "bun";
 import { mkdirSync, rmSync, existsSync, readFileSync } from "fs";
@@ -28,12 +29,7 @@ function readLogLines(path) {
 }
 
 async function waitForLogLine(path, startCount) {
-  for (let i = 0; i < 60; i++) {
-    const lines = readLogLines(path);
-    if (lines.length > startCount) return lines.at(-1);
-    await Bun.sleep(50);
-  }
-  throw new Error(`timeout waiting for log line in ${path}`);
+  return waitForNewLogLine(() => readLogLines(path), startCount, path);
 }
 
 function runNginxTest(confPath) {

@@ -14,6 +14,7 @@ import {
   configureTestPorts,
   getPort,
   materializeTestConfig,
+  waitForNewLogLine,
 } from "../harness.js";
 
 const MODULE = "llm-proxy";
@@ -122,12 +123,7 @@ function readPhase5AccessLines() {
 }
 
 async function waitForNextPhase5AccessLine(startCount) {
-  for (let i = 0; i < 40; i += 1) {
-    const lines = readPhase5AccessLines();
-    if (lines.length > startCount) return lines.at(-1);
-    await Bun.sleep(50);
-  }
-  throw new Error("timeout waiting for Phase 5 access log line");
+  return waitForNewLogLine(readPhase5AccessLines, startCount, "Phase 5");
 }
 
 function parsePhase5AccessLine(line) {
@@ -144,12 +140,7 @@ function readPhase7AccessLines() {
 }
 
 async function waitForNextPhase7AccessLine(startCount) {
-  for (let i = 0; i < 40; i += 1) {
-    const lines = readPhase7AccessLines();
-    if (lines.length > startCount) return lines.at(-1);
-    await Bun.sleep(50);
-  }
-  throw new Error("timeout waiting for Phase 7 access log line");
+  return waitForNewLogLine(readPhase7AccessLines, startCount, "Phase 7");
 }
 
 async function waitForPhase7AccessLineForUri(startCount, uri) {
@@ -176,12 +167,7 @@ function readPhase8AccessLines() {
 }
 
 async function waitForNextPhase8AccessLine(startCount) {
-  for (let i = 0; i < 40; i += 1) {
-    const lines = readPhase8AccessLines();
-    if (lines.length > startCount) return lines.at(-1);
-    await Bun.sleep(50);
-  }
-  throw new Error("timeout waiting for Phase 8 access log line");
+  return waitForNewLogLine(readPhase8AccessLines, startCount, "Phase 8");
 }
 
 function parsePhase8AccessLine(line) {
@@ -198,12 +184,7 @@ function readPhase9AccessLines() {
 }
 
 async function waitForNextPhase9AccessLine(startCount) {
-  for (let i = 0; i < 40; i += 1) {
-    const lines = readPhase9AccessLines();
-    if (lines.length > startCount) return lines.at(-1);
-    await Bun.sleep(50);
-  }
-  throw new Error("timeout waiting for Phase 9 access log line");
+  return waitForNewLogLine(readPhase9AccessLines, startCount, "Phase 9");
 }
 
 function parsePhase9AccessLine(line) {
@@ -217,12 +198,7 @@ function readPhase14AccessLines() {
 }
 
 async function waitForNextPhase14AccessLine(startCount) {
-  for (let i = 0; i < 40; i += 1) {
-    const lines = readPhase14AccessLines();
-    if (lines.length > startCount) return lines.at(-1);
-    await Bun.sleep(50);
-  }
-  throw new Error("timeout waiting for Phase 14 access log line");
+  return waitForNewLogLine(readPhase14AccessLines, startCount, "Phase 14");
 }
 
 function parsePhase14AccessLine(line) {
@@ -236,26 +212,13 @@ function readPhase15AccessLines() {
 }
 
 async function waitForNextPhase15AccessLine(startCount, uriIncludes = null) {
-  // Filter by URI when provided: phase15-access.log is shared across many
-  // locations, and bun may run sibling tests concurrently — taking the last
-  // fresh line without a URI match is a flake source.
-  // Also require the full llm_phase15 field count so a partial/wrong line
-  // never surfaces as undefined translationHappened/etc.
-  const minFields = 11;
-  for (let i = 0; i < 40; i += 1) {
-    const lines = readPhase15AccessLines();
-    const fresh = lines.slice(startCount);
-    const match = [...fresh].reverse().find((line) => {
-      if (uriIncludes && !line.includes(uriIncludes)) return false;
-      return line.split("|").length >= minFields;
-    });
-    if (match) return match;
-    await Bun.sleep(50);
-  }
-  throw new Error(
-    uriIncludes
-      ? `timeout waiting for Phase 15 access log line containing ${uriIncludes}`
-      : "timeout waiting for Phase 15 access log line",
+  // phase15-access.log is shared across many locations; filtering by URI
+  // avoids picking up an unrelated line when one is available.
+  return waitForNewLogLine(
+    readPhase15AccessLines,
+    startCount,
+    uriIncludes ? `Phase 15 (${uriIncludes})` : "Phase 15",
+    uriIncludes,
   );
 }
 
@@ -3019,12 +2982,7 @@ describe("llm-proxy module", () => {
       return readFileSync(PHASE20_ACCESS_LOG, "utf8").split("\n").map(l => l.trim()).filter(Boolean);
     }
     async function waitForPhase20Line(startCount) {
-      for (let i = 0; i < 40; i++) {
-        const lines = readPhase20Lines();
-        if (lines.length > startCount) return lines.at(-1);
-        await Bun.sleep(50);
-      }
-      throw new Error("timeout waiting for phase20 access log line");
+      return waitForNewLogLine(readPhase20Lines, startCount, "Phase 20");
     }
     function parsePhase20Line(line) {
       const [uri, pt, cr, cc, ct] = line.split("|");

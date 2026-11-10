@@ -44,7 +44,30 @@ const MODULE_PORT_SLOTS = [
   "llm-security",
 ];
 const MAX_MODULE_SLOTS = 16;
-const MAX_PID_SLOTS = 40; // 40 * 16 * 48 + 10000 < 65535
+
+// Planned ports must stay below the kernel's ephemeral port range. Otherwise
+// outgoing connections — including the test process's own fetch/Bun.connect
+// calls, and the connect probes this harness uses before binding — can be
+// assigned one of the planned listen ports as their local source port. nginx
+// then fails with "bind() ... Address already in use", intermittently, based
+// on the process pid (and therefore which port block it picked).
+function ephemeralPortFloor() {
+  try {
+    const [low] = readFileSync("/proc/sys/net/ipv4/ip_local_port_range", "utf8")
+      .trim()
+      .split(/\s+/)
+      .map(Number);
+    if (Number.isFinite(low) && low > PORT_BLOCK_BASE) return low;
+  } catch {}
+  // Conservative default (Linux 32768-60999; macOS 49152-65535).
+  return 32768;
+}
+
+const EPHEMERAL_PORT_FLOOR = ephemeralPortFloor();
+const MAX_PORT_BLOCKS = Math.floor(
+  (EPHEMERAL_PORT_FLOOR - PORT_BLOCK_BASE) / PORT_BLOCK_SIZE,
+);
+const MAX_PID_SLOTS = Math.max(1, Math.floor(MAX_PORT_BLOCKS / MAX_MODULE_SLOTS));
 
 let currentPortPlan = null;
 let currentModuleName = null;
@@ -109,13 +132,14 @@ function rewriteConfigPorts(configText) {
   if (!currentPortPlan) return configText;
 
   const legacyPortsDesc = [...LEGACY_PORTS].sort((a, b) => String(b).length - String(a).length);
-  let rewritten = configText;
-  for (const legacyPort of legacyPortsDesc) {
-    const mapped = getPort(legacyPort);
-    const pattern = new RegExp(`(?<!\\d)${legacyPort}(?!\\d)`, "g");
-    rewritten = rewritten.replace(pattern, String(mapped));
-  }
-  return rewritten;
+  // One combined pass: replacing each legacy port in a separate pass can
+  // rewrite a mapped port if it happens to equal another legacy port (e.g.
+  // mapped 19000 being matched again by the legacy 19000 rule).
+  const pattern = new RegExp(
+    `(?<!\\d)(?:${legacyPortsDesc.join("|")})(?!\\d)`,
+    "g",
+  );
+  return configText.replace(pattern, (legacyPort) => String(getPort(legacyPort)));
 }
 
 export function materializeTestConfig(configPath, moduleName, outputDir) {
@@ -300,9 +324,12 @@ function killListenersOnPort(port) {
       : typeof raw === "string"
         ? raw
         : Buffer.from(raw).toString();
-    for (const match of text.matchAll(/pid=(\d+)/g)) {
-      const pid = Number(match[1]);
-      if (pid > 0 && pid !== process.pid) {
+    // Only kill our own orphaned nginx masters. Planned ports can overlap
+    // unrelated developer services; never kill those.
+    for (const match of text.matchAll(/users:\(\("([^"]+)",pid=(\d+)/g)) {
+      const name = match[1];
+      const pid = Number(match[2]);
+      if (name === "nginz-token" && pid > 0 && pid !== process.pid) {
         try { process.kill(pid, "SIGKILL"); } catch {}
       }
     }
@@ -367,6 +394,45 @@ export async function waitForTCPPort(port, timeout = 10000) {
     }
   }
   throw new Error(`Timeout waiting for TCP port ${port}`);
+}
+
+// Wait for a new access-log line, then let the log settle before returning it.
+//
+// nginx writes access logs in the log phase, after the response has already
+// been sent to the client. A test can therefore snapshot `startCount`, fire
+// its request, and still see the *previous* test's line appear as the first
+// "fresh" line. Waiting for the line count to stop changing ensures the line
+// from the request under test is present before we return the last line.
+const ACCESS_LOG_SETTLE_MS = 50;
+const ACCESS_LOG_TIMEOUT_MS = 2000;
+
+export async function waitForNewLogLine(
+  readLines,
+  startCount,
+  label,
+  uriIncludes = null,
+) {
+  const deadline = Date.now() + ACCESS_LOG_TIMEOUT_MS;
+  let observedCount = startCount;
+  let stableSince = 0;
+  while (Date.now() < deadline) {
+    const lines = readLines();
+    if (lines.length > startCount) {
+      const fresh = lines.slice(startCount);
+      const match = uriIncludes
+        ? [...fresh].reverse().find((line) => line.startsWith(`${uriIncludes}|`))
+        : lines.at(-1);
+      if (match) {
+        if (lines.length !== observedCount) {
+          observedCount = lines.length;
+          stableSince = Date.now();
+        }
+        if (Date.now() - stableSince >= ACCESS_LOG_SETTLE_MS) return match;
+      }
+    }
+    await Bun.sleep(10);
+  }
+  throw new Error(`timeout waiting for ${label} access log line`);
 }
 
 // Clean up runtime directory

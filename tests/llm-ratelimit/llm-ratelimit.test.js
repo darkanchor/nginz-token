@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import { spawnSync } from "bun";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -17,6 +17,24 @@ let keySeq = 0;
 function uniqueKey(prefix = "k") {
   return `${prefix}-${++keySeq}-${Date.now()}`;
 }
+
+// Request windows are wall-clock minute buckets. If a test sends requests on
+// both sides of a minute boundary, the counters reset mid-test (e.g. the 4th
+// burst request is allowed instead of denied). Don't start a test in the last
+// two seconds of a minute, so no single test straddles the boundary.
+const RATE_WINDOW_MS = 60_000;
+const WINDOW_BOUNDARY_MARGIN_MS = 2_000;
+
+async function waitForWindowBoundary() {
+  const remaining = RATE_WINDOW_MS - (Date.now() % RATE_WINDOW_MS);
+  if (remaining <= WINDOW_BOUNDARY_MARGIN_MS) {
+    await Bun.sleep(remaining + 25);
+  }
+}
+
+beforeEach(async () => {
+  await waitForWindowBoundary();
+});
 
 function childPids(parentPid) {
   const result = spawnSync(["ps", "-o", "pid=", "--ppid", String(parentPid)], {
